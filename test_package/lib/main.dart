@@ -49,6 +49,7 @@ class MainApp extends StatefulWidget {
 class _MainAppState extends State<MainApp> {
   late BleCentral bleCentral;
   late BlePeriferico blePeriferico;
+  String tipoDispositivo = "DESCONECTADO";
 
   @override
   void initState() {
@@ -67,26 +68,28 @@ class _MainAppState extends State<MainApp> {
             crossAxisAlignment: CrossAxisAlignment.center,
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Text(
-                  "Ble Central Conectado? => ${bleCentral.peripheralSsiEncontrado}"),
+              Text(tipoDispositivo),
               FilledButton.icon(
                 onPressed: () async {
                   await bleCentral.startDiscovery();
-                  bleCentral.onMessageReceived.listen(
-                    (event) {
-                      print("LLEGO MENSAJE A LA CENTRAL");
-                      print(event);
-                    },
-                  );
-                  bleCentral.onDisconnectStream.listen((disconnect) {
-                    print("Llego un Disconnect Central");
-                    print(disconnect);
-                  });
                   final dispositivosConectados = await bleCentral
-                      .buscarYConectarPorNombre(nombre: "BLE-SSI");
+                      .buscarYConectarPorNombre(nombre: "SSI_STEVEN");
                   if (dispositivosConectados) {
                     await bleCentral.stopDiscovery();
                     await bleCentral.conectarCaracteristicaSSi();
+                    tipoDispositivo = "CENTRAL";
+                    setState(() {});
+
+                    bleCentral.subscribeToMessages(
+                        (message) => print("MSG CENTRAL => $message"),
+                        (error) => print(error),
+                        () => print("Finaliza suscripcion en CENTRAL"));
+                    bleCentral.subscribeToDisconnects((connected) async {
+                      await bleCentral.desconectarDispositivos(
+                          notificar: false);
+                      print("Disconnect => $connected");
+                    }, (error) => print("Err Conn $error"),
+                        () => print("Finaliza Sus Conexion en CENTRAL"));
                   } else {
                     print("No se lograron conectar los dispositivos");
                   }
@@ -97,13 +100,11 @@ class _MainAppState extends State<MainApp> {
               FilledButton.icon(
                 onPressed: () async {
                   await bleCentral.desconectarDispositivos(notificar: true);
-                  // await bleCentral.desconectarPeriferico();
-                  // await bleCentral.stopDiscovery();
-                  // bleCentral.stopDiscovery();
-                  // bleCentral.startDiscovery();
+                  tipoDispositivo = "DESCONECTADO";
+                  setState(() {});
                 },
                 icon: const Icon(Icons.abc_outlined),
-                label: const Text("Stop Busqueda"),
+                label: const Text("Desconectar Periferico"),
               ),
               FilledButton.icon(
                 onPressed: () async {
@@ -112,21 +113,31 @@ class _MainAppState extends State<MainApp> {
                 icon: const Icon(Icons.message),
                 label: const Text("Enviar Mensaje"),
               ),
-              Text(
-                  "Ble Pheripheral Adversting? => ${blePeriferico.advertising}"),
               FilledButton.icon(
                 onPressed: () async {
-                  await blePeriferico.startAdvertising();
-                  blePeriferico.onMessageReceived.listen((mensaje) {
-                    print("LLEGO UN MENSAJE COMPLETO AL PERIFERICO");
-                    print(mensaje);
-                  });
-                  blePeriferico.onDisconnectStream.listen((disconnect) {
-                    print("Llego Disconnect Periferico");
-                    print(disconnect);
-                  });
-                  // bleCentral.stopDiscovery();
-                  // bleCentral.startDiscovery();
+                  await blePeriferico.startAdvertising(bleName: "SSI_STEVEN");
+                  try {
+                    blePeriferico.subscribeToMessages((message) {
+                      print("LE LLEGO MENSAJE AL PERIFERICO => $message");
+                    }, (er) {
+                      print("Error: $er");
+                    }, () {
+                      print("Finalizo el Stream");
+                    });
+                    blePeriferico.subscribeToDisconnects((message) async {
+                      print("LE LLEGO Disconnect AL PERIFERICO => $message");
+                      await blePeriferico.desconectarDispositivos(
+                          notificar: false);
+                    }, (er) {
+                      print("Error: $er");
+                    }, () {
+                      print("Finalizo el Stream");
+                    });
+                    tipoDispositivo = "PERIFERICO";
+                    setState(() {});
+                  } catch (e) {
+                    print(e);
+                  }
                 },
                 icon: const Icon(Icons.abc_outlined),
                 label: const Text("Iniciar Periferico"),
@@ -134,17 +145,45 @@ class _MainAppState extends State<MainApp> {
               FilledButton.icon(
                 onPressed: () async {
                   await blePeriferico.desconectarDispositivos(notificar: true);
+                  tipoDispositivo = "DESCONECTADO";
+                  setState(() {});
                 },
                 icon: const Icon(Icons.abc_outlined),
-                label: const Text("Detener Periferico"),
+                label: const Text("Desconectar CENTRAL"),
               ),
               FilledButton.icon(
                 onPressed: () async {
                   await blePeriferico.writeNotificationToCentral(mensaje: cred);
                 },
-                icon: const Icon(Icons.abc_outlined),
+                icon: const Icon(Icons.message_outlined),
                 label: const Text("Enviar Noti"),
               ),
+              // FilledButton(
+              //     onPressed: () async {
+              //       final StreamController<int> intController =
+              //           StreamController<int>.broadcast();
+
+              //       StreamSubscription<int>? sub =
+              //           intController.stream.listen((numero) {
+              //         print("LLEGO NUMERO $numero");
+              //       });
+
+              //       intController.add(1);
+              //       intController.add(10);
+
+              //       await Future.delayed(const Duration(seconds: 1));
+
+              //       await sub.cancel();
+              //       sub = null;
+
+              //       sub = intController.stream.listen((numero) {
+              //         print("LLEGO NUMERO SEGUNDA DEFINICION $numero");
+              //       });
+
+              //       intController.add(2);
+              //       intController.add(20);
+              //     },
+              //     child: const Text("Test Stream"))
             ],
           ),
         ),

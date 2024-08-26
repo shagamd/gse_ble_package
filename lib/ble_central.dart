@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
@@ -57,9 +58,12 @@ class BleCentral {
   final Map<int, MessageBuffer> _messageBuffers = {};
 
   final StreamController<String> _messageController =
-      StreamController<String>();
+      StreamController<String>.broadcast();
+  final StreamController<bool> _disconnectController =
+      StreamController<bool>.broadcast();
 
-  final StreamController<bool> _disconnectController = StreamController<bool>();
+  StreamSubscription<String>? _messageSubscription;
+  StreamSubscription<bool>? _disconnectSubscription;
 
   BleCentral._();
 
@@ -75,10 +79,10 @@ class BleCentral {
   BluetoothLowEnergyState get state => _centralManager.state;
   bool get discovering => _discovering;
   bool get peripheralSsiEncontrado => _peripheralConectado;
-  // Stream público para que el usuario se suscriba
-  Stream<String> get onMessageReceived => _messageController.stream;
-  // Stream público para que el usuario se suscriba
-  Stream<bool> get onDisconnectStream => _disconnectController.stream;
+  // // Stream público para que el usuario se suscriba
+  // Stream<String> get onMessageReceived => _messageController.stream;
+  // // Stream público para que el usuario se suscriba
+  // Stream<bool> get onDisconnectStream => _disconnectController.stream;
 
   void _cargarSuscripciones() {
     if (hierarchicalLoggingEnabled) {
@@ -128,7 +132,7 @@ class BleCentral {
       if (value.length == dataDisconnect.length) {
         if (listEquals(value, dataDisconnect)) {
           _disconnectController.add(false);
-          desconectarDispositivos(notificar: false);
+          // desconectarDispositivos(notificar: false);
           return;
         }
       }
@@ -191,7 +195,7 @@ class BleCentral {
   Future<bool> buscarYConectarPorNombre({required String nombre}) async {
     try {
       await _buscarPerifericoPorNombre(nombre: nombre)
-          .timeout(const Duration(seconds: 10));
+          .timeout(const Duration(seconds: 15));
       return true;
     } on TimeoutException {
       // Si no se ha conectado en 10 segundos, lanzará una TimeoutException
@@ -330,13 +334,54 @@ class BleCentral {
 
   Future<void> desconectarDispositivos({bool notificar = true}) async {
     if (notificar) {
-      await _centralManager.writeCharacteristic(
-        _peripheralSsi,
-        _characteristicSsi,
-        value: dataDisconnect,
-        type: _writeType,
-      );
+      try {
+        await _centralManager.writeCharacteristic(
+          _peripheralSsi,
+          _characteristicSsi,
+          value: dataDisconnect,
+          type: _writeType,
+        );
+      } catch (e) {
+        print("CENTRAL: Error Escribiendo desconexion al Periferico");
+      }
     }
+
     await _desconectarPeriferico();
+
+    _messageBuffers.clear();
+
+    _messageSubscription?.cancel();
+    _messageSubscription = null;
+
+    _disconnectSubscription?.cancel();
+    _disconnectSubscription = null;
+  }
+
+  void subscribeToMessages(
+      Function(String) onData, Function? onError, VoidCallback? onDone) {
+    if (_messageSubscription != null) {
+      _messageSubscription?.cancel();
+      _messageSubscription = null;
+    }
+    _messageSubscription = _messageController.stream.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: false,
+    );
+  }
+
+  void subscribeToDisconnects(
+      Function(bool) onData, Function? onError, VoidCallback? onDone) {
+    if (_messageSubscription != null) {
+      _disconnectSubscription?.cancel();
+      _disconnectSubscription = null;
+    }
+    _disconnectSubscription = _disconnectController.stream.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: false,
+    );
   }
 }

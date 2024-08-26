@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:bluetooth_low_energy/bluetooth_low_energy.dart';
 import 'package:logging/logging.dart';
@@ -16,17 +17,24 @@ class BlePeriferico {
   bool _advertising = false;
 
   final StreamController<String> _messageController =
-      StreamController<String>();
-  final StreamController<bool> _disconnectController = StreamController<bool>();
+      StreamController<String>.broadcast();
+  final StreamController<bool> _disconnectController =
+      StreamController<bool>.broadcast();
   bool _subscripcionesCargadas = false;
 
   final Map<int, MessageBuffer> _messageBuffers = {};
   Central? _central;
 
-  // Stream público para que el usuario se suscriba
-  Stream<String> get onMessageReceived => _messageController.stream;
-  // Stream público para que el usuario se suscriba
-  Stream<bool> get onDisconnectStream => _disconnectController.stream;
+  // // Stream público para que el usuario se suscriba
+  // Stream<String> get onMessageReceived => _messageController.stream;
+  // // Stream público para que el usuario se suscriba
+  // Stream<bool> get onDisconnectStream => _disconnectController.stream;
+
+  StreamSubscription<String>? _messageSubscription;
+  StreamSubscription<bool>? _disconnectSubscription;
+
+  BluetoothLowEnergyState get state => _perifericalManager.state;
+  bool get advertising => _advertising;
 
   BlePeriferico._();
 
@@ -82,7 +90,7 @@ class BlePeriferico {
         if (listEquals(value, dataDisconnect)) {
           await _perifericalManager.respondWriteRequest(request);
           _disconnectController.add(false);
-          desconectarDispositivos(notificar: false);
+          // desconectarDispositivos(notificar: false);
           return;
         }
       }
@@ -140,9 +148,6 @@ class BlePeriferico {
     _subscripcionesCargadas = true;
   }
 
-  BluetoothLowEnergyState get state => _perifericalManager.state;
-  bool get advertising => _advertising;
-
   Future<void> showAppSettings() async {
     await _perifericalManager.showAppSettings();
   }
@@ -163,7 +168,7 @@ class BlePeriferico {
     descriptors: [],
   );
 
-  Future<void> startAdvertising() async {
+  Future<void> startAdvertising({required String bleName}) async {
     if (_advertising) {
       return;
     }
@@ -187,7 +192,7 @@ class BlePeriferico {
     );
     await _perifericalManager.addService(service);
     final advertisement = Advertisement(
-      name: Platform.isWindows ? null : 'BLE-SSI',
+      name: Platform.isWindows ? null : bleName,
       manufacturerSpecificData: Platform.isIOS || Platform.isMacOS
           ? []
           : [
@@ -254,16 +259,47 @@ class BlePeriferico {
     }
   }
 
+  void subscribeToMessages(
+      Function(String) onData, Function? onError, VoidCallback? onDone) {
+    _messageSubscription = _messageController.stream.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: false,
+    );
+  }
+
+  void subscribeToDisconnects(
+      Function(bool) onData, Function? onError, VoidCallback? onDone) {
+    _disconnectSubscription = _disconnectController.stream.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: false,
+    );
+  }
+
   Future<void> desconectarDispositivos({bool notificar = true}) async {
     if (notificar) {
-      await _perifericalManager.notifyCharacteristic(
-        _central!,
-        _characteristicCommunication,
-        value: dataDisconnect,
-      );
+      try {
+        await _perifericalManager.notifyCharacteristic(
+          _central!,
+          _characteristicCommunication,
+          value: dataDisconnect,
+        );
+      } catch (e) {
+        print("PERIFERICO: Error Escribiendo desconexion al Central");
+      }
     }
+    await stopAdvertising();
+    await _perifericalManager.removeAllServices();
     _messageBuffers.clear();
     _central = null;
-    await stopAdvertising();
+
+    _messageSubscription?.cancel();
+    _messageSubscription = null;
+
+    _disconnectSubscription?.cancel();
+    _disconnectSubscription = null;
   }
 }
