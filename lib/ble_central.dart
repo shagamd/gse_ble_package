@@ -332,6 +332,12 @@ class BleCentral {
     return await _centralManager.discoverGATT(_peripheralSsi);
   }
 
+  Future<void> tryDesconectarPeriferico() async {
+    if(_peripheralConectado) {
+      await _desconectarPeriferico();
+    }
+  }
+
   Future<void> desconectarDispositivos({bool notificar = true}) async {
     if (notificar) {
       try {
@@ -346,7 +352,7 @@ class BleCentral {
       }
     }
 
-    await _desconectarPeriferico();
+    await tryDesconectarPeriferico();
 
     _messageBuffers.clear();
 
